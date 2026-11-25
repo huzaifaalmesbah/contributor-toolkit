@@ -76,6 +76,9 @@ const SETTINGS = {
 	// turned on: it slows every request, and most contributors never attach
 	// a debugger.
 	xdebug: { fallback: false, accept: acceptSwitch },
+	// The local MCP server an AI coding agent drives the app through
+	// (agent-bridge.cjs). Off by default: nothing listens unless asked to.
+	agentBridge: { fallback: false, accept: acceptSwitch },
 	// What starts when a site is opened: its development server, its build
 	// watch, both or neither. Off unless turned on: a server is minutes of
 	// CPU on a laptop at a Contributor Day.
@@ -169,7 +172,8 @@ function readSettings(preferences = {}) {
 		customBackground: color('customBackground'),
 		customPrimary: color('customPrimary'),
 		newSiteLocation: text('newSiteLocation'),
-		editor: text('editor')
+		editor: text('editor'),
+		agentBridge: flag('agentBridge')
 	};
 }
 

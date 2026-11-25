@@ -1136,7 +1136,13 @@ function SiteRow({ sitePath, initialized, createdAt, label, projectType = null, 
     // it, and returning focus is when the banner can have become stale.
     const onFocus = () => { refreshDirty(); loadStatus().catch(() => {}); };
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    // An agent working through the agent bridge changes the site without the
+    // window losing focus, so it says when it has.
+    const unsubAgent = window.api.subscribeAgentChange?.(onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      if (unsubAgent) unsubAgent();
+    };
   }, [isActive, refreshDirty, loadStatus]);
 
   // The ticket or issue this site is working on (#554): linking, leaving,

@@ -219,6 +219,13 @@ function OpeningAndQuitting({ settings, onChange }) {
         disabled={!settings}
         onCheckedChange={(checked) => keep('autoStartWatch', checked)}
       />
+      <SwitchControl
+        label={__('Let AI coding agents control this app')}
+        description={__('Starts a local connection that an agent such as Claude Code or Codex can use to install, build, start the server and apply patches. Only programs on this computer with its key can use it, and it cannot discard work, delete sites or open pull requests.')}
+        checked={settings ? settings.agentBridge : false}
+        disabled={!settings}
+        onCheckedChange={(checked) => keep('agentBridge', checked)}
+      />
       <SelectControl
         label={__('When I quit, running servers and build watches')}
         description={__('Quitting always stops them; they can be started again when the app next opens.')}

@@ -170,6 +170,14 @@ contextBridge.exposeInMainWorld('api', {
 		return () => ipcRenderer.removeListener('ticket:carried-work', h);
 	}
 ,
+	// An AI agent changed something through the agent bridge (agent-bridge.cjs):
+	// the open site re-reads its status, as it does when focus returns.
+	subscribeAgentChange: (handler) => {
+		const h = (_e, payload) => handler && handler(payload);
+		ipcRenderer.on('agent:changed', h);
+		return () => ipcRenderer.removeListener('agent:changed', h);
+	}
+,
 	// A ticket handed to the app by a `wpct://` link (#464). Subscribe first,
 	// then call `deepLinkReady` — main holds a ticket that arrived during
 	// startup until that call, because a send to a page still loading is

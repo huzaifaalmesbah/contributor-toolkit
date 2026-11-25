@@ -1,4 +1,8 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, nativeTheme } = require('electron');
+// Before any handler is registered: the agent bridge calls the same handlers
+// the window does, and can only find the ones registered after this line.
+const agentBridge = require('./agent-bridge.cjs');
+const agentHandlers = agentBridge.captureHandlers(ipcMain);
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
@@ -3052,6 +3056,13 @@ app.whenReady().then(async () => {
 	// opened the window.
 	if (BrowserWindow.getAllWindows().length === 0) createWindow();
 
+	// Off unless the contributor turned it on, and then on from launch.
+	try {
+		if (readSettings((await getStore()).get('preferences')).agentBridge) await applyAgentBridge(true);
+	} catch (e) {
+		logError('agent-bridge', String(e && e.message ? e.message : e));
+	}
+
 	// Windows and Linux, cold start: the address that launched the app is in
 	// this process's own argv. macOS does not use argv for this — it sends
 	// `open-url`, which may already have fired and left a ticket queued.
@@ -3109,6 +3120,9 @@ ipcMain.handle('sites:resume', async () => {
 });
 
 app.on('before-quit', () => {
+	// The file says where the bridge listens; one left behind would point an
+	// agent at a port nothing, or something else, now holds.
+	if (runningAgentBridge) runningAgentBridge.stop();
 	// Before the sweep, since it reads what is running; and unable to stop
 	// the sweep, since a store that cannot be written is no reason to leave
 	// every server and watch running.
@@ -4004,8 +4018,65 @@ ipcMain.handle('settings:set', async (_e, key, value) => {
 	// window's own colour is set here rather than left to Electron's
 	// `updated`, which is not promised for a change to 'system'.
 	if (THEME_KEYS.includes(key)) applyTheme(settings);
+	if (key === 'agentBridge') {
+		const applied = await applyAgentBridge(settings.agentBridge);
+		if (!applied.ok) return { ok: false, error: applied.error, settings };
+	}
 	return { ok: true, settings };
 });
+
+// --- The agent bridge (prototype) ---
+//
+// A local MCP server over the handlers above, on while the setting is. What
+// it offers and why is agent-bridge.cjs's; what is here is what only main has:
+// the store, the running servers, the shims and the window.
+let runningAgentBridge = null;
+let agentBridgeRuns = null;
+
+async function applyAgentBridge(on) {
+	if (!on) {
+		if (runningAgentBridge) {
+			const stopping = runningAgentBridge;
+			runningAgentBridge = null;
+			await stopping.stop();
+			logEvent('agent-bridge', 'stopped');
+		}
+		return { ok: true };
+	}
+	if (runningAgentBridge) return { ok: true };
+	agentBridgeRuns = agentBridgeRuns || agentBridge.createRunLog();
+	const toWindow = (channel, payload) => {
+		if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+	};
+	const ctx = agentBridge.createContext({
+		registry: agentHandlers,
+		runs: agentBridgeRuns,
+		readStore: async () => {
+			const s = await getStore();
+			return { sites: s.get('sites'), siteMeta: s.get('siteMeta') };
+		},
+		serverUrl: (sitePath) => playgroundServers[sitePath]?.url || null,
+		nodeEnv: () => ({ pathEntry: ensureNodeShimDir(), platform: process.platform, note: 'Valid while this app is running; the folder changes on each launch.' }),
+		onForward: toWindow
+	});
+	try {
+		runningAgentBridge = await agentBridge.startBridge({
+			ctx,
+			dir: app.getPath('userData'),
+			version: app.getVersion(),
+			onWrite: (tool) => toWindow('agent:changed', { tool }),
+			log: (line) => logEvent('agent-bridge', line),
+			// The app's own Electron, run as Node: the agent needs no Node either.
+			nodeCommand: { command: nodeExecPath(), env: { ELECTRON_RUN_AS_NODE: '1' } }
+		});
+		logEvent('agent-bridge', `listening on ${runningAgentBridge.url}`);
+		return { ok: true };
+	} catch (e) {
+		runningAgentBridge = null;
+		logError('agent-bridge', `could not start: ${String(e && e.message ? e.message : e)}`);
+		return { ok: false, error: __('The agent connection could not be started. The log says why.') };
+	}
+}
 
 // The fallback that needs no configuration at all — see site-registry.js for why
 // it is behind the same boundary as `sites:delete`.
